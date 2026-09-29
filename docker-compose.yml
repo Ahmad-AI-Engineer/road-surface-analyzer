@@ -1,0 +1,85 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: rda-backend
+    restart: unless-stopped
+    ports:
+      - "8007:8007"
+    environment:
+      ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY:-}
+      MODEL_ID: ${MODEL_ID:-road-damage-medium-9semt/1}
+      CONF_THRESHOLD: ${CONF_THRESHOLD:-0.35}
+      FRAME_STRIDE: ${FRAME_STRIDE:-5}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+      MOCK_DETECTOR: ${MOCK_DETECTOR:-0}
+      MEDIA_ROOT: /media
+      DB_PATH: /data/app.db
+      CORS_ORIGINS: http://localhost:3007,http://localhost:3006
+    volumes:
+      - media:/media
+      - dbdata:/data
+      - ./samples:/samples
+      - ./scripts:/scripts:ro
+    networks:
+      - rda
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8007/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8007}
+        VITE_MEDIA_URL: ${VITE_MEDIA_URL:-http://localhost:3006}
+    container_name: rda-frontend
+    restart: unless-stopped
+    ports:
+      - "3007:3007"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - rda
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3007/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  media:
+    image: nginx:alpine
+    container_name: rda-media
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    volumes:
+      - media:/srv/media:ro
+      - ./docker/media.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - rda
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3006/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  media:
+  dbdata:
+
+networks:
+  rda:
+    driver: bridge
