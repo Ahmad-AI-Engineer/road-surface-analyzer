@@ -8,3 +8,4 @@ dist/
 media/
 *.db
 .DS_Store
+*.rar
